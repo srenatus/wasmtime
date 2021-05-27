@@ -7,35 +7,42 @@ use wasmtime::{Config, Engine, Linker, Module, Store};
 // when sleeping in `poll_oneoff`.
 use wasmtime_wasi::{tokio::WasiCtxBuilder, WasiCtx};
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    // Create an environment shared by all wasm execution. This contains
-    // the `Engine` and the `Module` we are executing.
-    let env = Environment::new()?;
+fn main() -> Result<(), Error> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        // Eagerly initialize the thread-local resources used by the engine
+        .on_thread_start(|| Engine::tls_eager_initialize().expect("initialize tls"))
+        .build()
+        .expect("create runtime")
+        .block_on(async {
+            // Create an environment shared by all wasm execution. This contains
+            // the `Engine` and the `Module` we are executing.
+            let env = Environment::new()?;
 
-    // The inputs to run_wasm are `Send`: we can create them here and send
-    // them to a new task that we spawn.
-    let inputs1 = Inputs::new(env.clone(), "Gussie");
-    let inputs2 = Inputs::new(env.clone(), "Willa");
-    let inputs3 = Inputs::new(env, "Sparky");
+            // The inputs to run_wasm are `Send`: we can create them here and send
+            // them to a new task that we spawn.
+            let inputs1 = Inputs::new(env.clone(), "Gussie");
+            let inputs2 = Inputs::new(env.clone(), "Willa");
+            let inputs3 = Inputs::new(env, "Sparky");
 
-    // Spawn some tasks. Insert sleeps before run_wasm so that the
-    // interleaving is easy to observe.
-    let join1 = tokio::task::spawn(async move { run_wasm(inputs1).await });
-    let join2 = tokio::task::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(750)).await;
-        run_wasm(inputs2).await
-    });
-    let join3 = tokio::task::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1250)).await;
-        run_wasm(inputs3).await
-    });
+            // Spawn some tasks. Insert sleeps before run_wasm so that the
+            // interleaving is easy to observe.
+            let join1 = tokio::task::spawn(async move { run_wasm(inputs1).await });
+            let join2 = tokio::task::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(750)).await;
+                run_wasm(inputs2).await
+            });
+            let join3 = tokio::task::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(1250)).await;
+                run_wasm(inputs3).await
+            });
 
-    // All tasks should join successfully.
-    join1.await??;
-    join2.await??;
-    join3.await??;
-    Ok(())
+            // All tasks should join successfully.
+            join1.await??;
+            join2.await??;
+            join3.await??;
+            Ok(())
+        })
 }
 
 #[derive(Clone)]
