@@ -38,7 +38,7 @@ pub use allocator::*;
 ///
 /// An instance can be created with a resource limiter so that hosts can take into account
 /// non-WebAssembly resource usage to determine if a linear memory or table should grow.
-pub trait ResourceLimiter: Send + Sync + 'static {
+pub trait ResourceLimiter: Send + Sync {
     /// Notifies the resource limiter that an instance's linear memory has been requested to grow.
     ///
     /// * `current` is the current size of the linear memory in WebAssembly page units.

@@ -69,9 +69,9 @@ pub trait ResourceLimiter: Send + Sync + 'static {
     }
 }
 
-pub(crate) struct ResourceLimiterProxy<T>(pub T);
+pub(crate) struct ResourceLimiterProxy<'a>(pub &'a mut dyn ResourceLimiter);
 
-impl<T: ResourceLimiter> wasmtime_runtime::ResourceLimiter for ResourceLimiterProxy<T> {
+impl<'a> wasmtime_runtime::ResourceLimiter for ResourceLimiterProxy<'a> {
     fn memory_growing(&mut self, current: u32, desired: u32, maximum: Option<u32>) -> bool {
         self.0.memory_growing(current, desired, maximum)
     }

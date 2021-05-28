@@ -120,7 +120,8 @@ pub struct StoreInner<T: ?Sized> {
     async_state: AsyncState,
     out_of_gas_behavior: OutOfGas,
     store_data: StoreData,
-    limiter: Option<Box<dyn wasmtime_runtime::ResourceLimiter>>,
+    limiter:
+        Option<Box<dyn Fn(&mut T) -> &mut (dyn crate::ResourceLimiter) + Send + Sync + 'static>>,
     default_callee: InstanceHandle,
     // for comments about `ManuallyDrop`, see `Store::into_data`
     data: ManuallyDrop<T>,
@@ -275,8 +276,11 @@ impl<T> Store<T> {
     /// Note that this limiter is only used to limit the creation/growth of
     /// resources in the future, this does not retroactively attempt to apply
     /// limits to the [`Store`].
-    pub fn limiter(&mut self, limiter: impl crate::ResourceLimiter) {
-        self.inner.limiter = Some(Box::new(crate::limits::ResourceLimiterProxy(limiter)));
+    pub fn limiter(
+        &mut self,
+        limiter: impl Fn(&mut T) -> &mut (dyn crate::ResourceLimiter) + Send + Sync + 'static,
+    ) {
+        self.inner.limiter = Some(Box::new(limiter));
     }
 
     /// Returns the [`Engine`] that this store is associated with.
@@ -582,8 +586,9 @@ impl<T: ?Sized> StoreInner<T> {
         &self.engine
     }
 
-    pub fn limiter(&mut self) -> Option<&mut dyn wasmtime_runtime::ResourceLimiter> {
-        self.limiter.as_mut().map(|l| &mut **l)
+    pub fn limiter<'a>(&'a mut self) -> Option<crate::limits::ResourceLimiterProxy<'a>> {
+        self.limiter
+            .map(|a| crate::limits::ResourceLimiterProxy(a(&mut self.data)))
     }
 
     pub fn store_data(&self) -> &StoreData {
@@ -683,7 +688,10 @@ impl<T: ?Sized> StoreInner<T> {
     fn limits(&self) -> (usize, usize, usize) {
         self.limiter
             .as_ref()
-            .map(|l| (l.instances(), l.memories(), l.tables()))
+            .map(|acc| {
+                let l = acc(&mut self.data);
+                (l.instances(), l.memories(), l.tables())
+            })
             .unwrap_or((
                 crate::limits::DEFAULT_INSTANCE_LIMIT,
                 crate::limits::DEFAULT_MEMORY_LIMIT,
@@ -1134,7 +1142,7 @@ unsafe impl<T> wasmtime_runtime::Store for StoreInner<T> {
     }
 
     fn limiter(&mut self) -> Option<&mut dyn wasmtime_runtime::ResourceLimiter> {
-        self.limiter.as_mut().map(|l| &mut **l)
+        self.limiter.as_ref().map(|l| l(&mut self.data))
     }
 
     fn out_of_gas(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
